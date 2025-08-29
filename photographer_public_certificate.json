@@ -1,0 +1,26 @@
+{
+  "id": "photographer-cert-demo",
+  "subject": "Professional Photographer - John Smith",
+  "issuer": "Self-Signed",
+  "serialNumber": "123456",
+  "validFrom": "2025-08-29T00:00:00.000Z",
+  "validTo": "2026-08-29T00:00:00.000Z",
+  "certificateType": "professional_enhancement",
+  "publicKey": [48, 118, 48, 16, 6, 7, 42, 134, 72, 206, 61, 2, 1, 6, 5, 43, 129, 4, 0, 34, 3, 98, 0, 4, 123, 45, 67, 89, 12, 34, 56, 78, 90, 123, 45, 67, 89, 12, 34, 56, 78, 90, 123, 45, 67, 89, 12, 34, 56, 78, 90, 123, 45, 67, 89, 12, 34, 56, 78, 90, 123, 45, 67, 89, 12, 34, 56, 78, 90, 123, 45, 67, 89, 12, 34, 56, 78, 90, 123, 45, 67, 89, 12, 34, 56, 78, 90, 123, 45, 67, 89, 12, 34, 56, 78],
+  "extensions": {
+    "allowedOperations": [
+      "capture",
+      "basic_editing", 
+      "professional_enhancement"
+    ],
+    "contentTypes": [
+      "photography",
+      "journalism"
+    ],
+    "deviceCapabilities": [
+      "camera",
+      "smartphone", 
+      "professional_equipment"
+    ]
+  }
+}
