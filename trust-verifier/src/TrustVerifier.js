@@ -383,21 +383,50 @@ export default function TrustVerifier() {
     const issues = [];
     
     console.log('Comparing EXIF data:');
-    console.log('Certified:', certifiedExif);
-    console.log('Current:', currentExif);
+    console.log('Certified:', JSON.stringify(certifiedExif, null, 2));
+    console.log('Current:', JSON.stringify(currentExif, null, 2));
     
     // Helper to safely compare values
-    const safeCompare = (val1, val2) => {
-      // Handle null/undefined
-      if (val1 == null && val2 == null) return true;
-      if (val1 == null || val2 == null) return false;
+    const safeCompare = (fieldName, val1, val2) => {
+      console.log(`Comparing ${fieldName}:`);
+      console.log(`  Certified: ${JSON.stringify(val1)} (type: ${typeof val1})`);
+      console.log(`  Current:   ${JSON.stringify(val2)} (type: ${typeof val2})`);
       
-      // Trim strings for comparison
-      if (typeof val1 === 'string' && typeof val2 === 'string') {
-        return val1.trim() === val2.trim();
+      // Handle null/undefined
+      if (val1 == null && val2 == null) {
+        console.log(`  Result: MATCH (both null/undefined)`);
+        return true;
+      }
+      if (val1 == null || val2 == null) {
+        console.log(`  Result: MISMATCH (one is null/undefined)`);
+        return false;
       }
       
-      return val1 === val2;
+      // For numbers, use epsilon comparison to handle floating point precision
+      if (typeof val1 === 'number' && typeof val2 === 'number') {
+        const epsilon = 0.0001; // Allow small floating point differences
+        const diff = Math.abs(val1 - val2);
+        const match = diff < epsilon;
+        console.log(`  Difference: ${diff}, Epsilon: ${epsilon}`);
+        console.log(`  Result: ${match ? 'MATCH' : 'MISMATCH'} (number comparison)`);
+        return match;
+      }
+      
+      // For strings, compare exactly - whitespace changes are tampering!
+      if (typeof val1 === 'string' && typeof val2 === 'string') {
+        const match = val1 === val2;
+        if (!match) {
+          console.log(`  String length: Certified=${val1.length}, Current=${val2.length}`);
+          console.log(`  Character codes: Certified=${Array.from(val1).map(c => c.charCodeAt(0)).slice(0, 50)}`);
+          console.log(`                   Current=${Array.from(val2).map(c => c.charCodeAt(0)).slice(0, 50)}`);
+        }
+        console.log(`  Result: ${match ? 'MATCH' : 'MISMATCH'} (string comparison)`);
+        return match;
+      }
+      
+      const match = val1 === val2;
+      console.log(`  Result: ${match ? 'MATCH' : 'MISMATCH'} (direct comparison)`);
+      return match;
     };
     
     // If no certified EXIF, can't verify
@@ -413,10 +442,18 @@ export default function TrustVerifier() {
       };
     }
     
+    // Check for null byte corruption
+    const hasNullBytes = (str) => str && str.includes('\u0000');
+    
     // Compare critical fields
-    if (!safeCompare(certifiedExif.camera, currentExif.camera)) {
+    if (!safeCompare('camera', certifiedExif.camera, currentExif.camera)) {
       if (certifiedExif.camera && currentExif.camera) {
-        issues.push(`Camera changed from "${certifiedExif.camera}" to "${currentExif.camera}"`);
+        // Check for null byte corruption specifically
+        if (hasNullBytes(currentExif.camera)) {
+          issues.push(`Camera information corrupted with null bytes (GPS editor bug)`);
+        } else {
+          issues.push(`Camera changed from "${certifiedExif.camera}" to "${currentExif.camera}"`);
+        }
       } else if (certifiedExif.camera && !currentExif.camera) {
         issues.push(`Camera information removed (was "${certifiedExif.camera}")`);
       } else if (!certifiedExif.camera && currentExif.camera) {
@@ -424,7 +461,7 @@ export default function TrustVerifier() {
       }
     }
     
-    if (!safeCompare(certifiedExif.dateTaken, currentExif.dateTaken)) {
+    if (!safeCompare('dateTaken', certifiedExif.dateTaken, currentExif.dateTaken)) {
       if (certifiedExif.dateTaken && currentExif.dateTaken) {
         issues.push(`Date taken changed from ${new Date(certifiedExif.dateTaken).toLocaleString()} to ${new Date(currentExif.dateTaken).toLocaleString()}`);
       } else {
@@ -432,12 +469,16 @@ export default function TrustVerifier() {
       }
     }
     
-    if (!safeCompare(certifiedExif.orientation, currentExif.orientation)) {
+    if (!safeCompare('orientation', certifiedExif.orientation, currentExif.orientation)) {
       issues.push(`Orientation changed from ${certifiedExif.orientation} to ${currentExif.orientation}`);
     }
     
     // GPS comparison - most critical for location verification
     if (certifiedExif.gps || currentExif.gps) {
+      console.log('Comparing GPS:');
+      console.log('  Certified GPS:', JSON.stringify(certifiedExif.gps));
+      console.log('  Current GPS:', JSON.stringify(currentExif.gps));
+      
       if (!certifiedExif.gps && currentExif.gps) {
         issues.push('GPS location was added after certification');
       } else if (certifiedExif.gps && !currentExif.gps) {
@@ -445,6 +486,8 @@ export default function TrustVerifier() {
       } else if (certifiedExif.gps && currentExif.gps) {
         const latDiff = Math.abs(certifiedExif.gps.latitude - currentExif.gps.latitude);
         const lngDiff = Math.abs(certifiedExif.gps.longitude - currentExif.gps.longitude);
+        console.log(`  Latitude diff: ${latDiff}`);
+        console.log(`  Longitude diff: ${lngDiff}`);
         if (latDiff > 0.000001 || lngDiff > 0.000001) {
           issues.push(`GPS location was modified`);
         }
@@ -452,22 +495,31 @@ export default function TrustVerifier() {
     }
     
     // Camera settings comparison
-    if (!safeCompare(certifiedExif.iso, currentExif.iso)) {
+    if (!safeCompare('iso', certifiedExif.iso, currentExif.iso)) {
       if (certifiedExif.iso !== null && currentExif.iso !== null) {
         issues.push(`ISO changed from ${certifiedExif.iso} to ${currentExif.iso}`);
       }
     }
     
-    if (!safeCompare(certifiedExif.focalLength, currentExif.focalLength)) {
+    if (!safeCompare('focalLength', certifiedExif.focalLength, currentExif.focalLength)) {
       if (certifiedExif.focalLength !== null && currentExif.focalLength !== null) {
-        issues.push(`Focal length changed from ${certifiedExif.focalLength}mm to ${currentExif.focalLength}mm`);
+        // Only report focal length changes if they're significant and values are reasonable
+        const focalLengthDiff = Math.abs(certifiedExif.focalLength - currentExif.focalLength);
+        if (focalLengthDiff > 0.1 && certifiedExif.focalLength > 0.001 && currentExif.focalLength > 0.001) {
+          issues.push(`Focal length changed from ${Math.round(certifiedExif.focalLength)}mm to ${Math.round(currentExif.focalLength)}mm`);
+        }
       }
     }
     
     // Lens comparison
-    if (!safeCompare(certifiedExif.lens, currentExif.lens)) {
+    if (!safeCompare('lens', certifiedExif.lens, currentExif.lens)) {
       if (certifiedExif.lens && currentExif.lens) {
-        issues.push(`Lens changed from "${certifiedExif.lens}" to "${currentExif.lens}"`);
+        // Check for null byte corruption specifically
+        if (hasNullBytes(currentExif.lens)) {
+          issues.push(`Lens information corrupted with null bytes (GPS editor bug)`);
+        } else {
+          issues.push(`Lens changed from "${certifiedExif.lens}" to "${currentExif.lens}"`);
+        }
       } else if (certifiedExif.lens && !currentExif.lens) {
         issues.push(`Lens information removed`);
       } else if (!certifiedExif.lens && currentExif.lens) {
@@ -630,7 +682,7 @@ export default function TrustVerifier() {
       if (!imageHashValid) result.trustIssues.push('Image data has been modified since signing');
       if (!exifIntegrityValid) {
         result.trustIssues.push('EXIF metadata has been tampered with');
-        console.error('EXIF tampering detected:', exifComparison.issues);
+        console.warn('⚠️ EXIF tampering detected:', exifComparison.issues);
       }
 
       setVerificationResult(result);

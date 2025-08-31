@@ -362,7 +362,17 @@ export class ExifExtractor {
       }
       
       const bytes = new Uint8Array(dataView.buffer, dataView.byteOffset + stringOffset, count - 1);
-      return new TextDecoder().decode(bytes);
+      let str = new TextDecoder().decode(bytes);
+      
+      // Clean up null bytes that some editors incorrectly add
+      // But log if we find them as it indicates the file was edited
+      if (str.includes('\u0000')) {
+        console.warn('Warning: EXIF string contains null bytes, likely from GPS editor corruption:', str);
+        // Remove null bytes for cleaner display, but this is still tampering
+        str = str.replace(/\u0000/g, '');
+      }
+      
+      return str;
     } catch (error) {
       return null;
     }
