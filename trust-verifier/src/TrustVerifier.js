@@ -232,6 +232,13 @@ export default function TrustVerifier() {
 
   useEffect(() => {
     loadTrustedCertificates();
+    
+    // Cleanup on unmount
+    return () => {
+      if (imagePreview) {
+        URL.revokeObjectURL(imagePreview);
+      }
+    };
   }, []);
 
   const loadTrustedCertificates = async () => {
@@ -253,7 +260,14 @@ export default function TrustVerifier() {
     if (!file) return;
 
     try {
+      // Clear previous results
+      setVerificationResult(null);
       setStatus('Extracting embedded certification...');
+      
+      // Clean up previous preview if exists
+      if (imagePreview) {
+        URL.revokeObjectURL(imagePreview);
+      }
       
       const preview = URL.createObjectURL(file);
       setImagePreview(preview);
@@ -263,6 +277,12 @@ export default function TrustVerifier() {
       const certData = await CertificationExtractor.extractFromImage(file);
       
       if (certData) {
+        console.log('Extracted certification data:', certData);
+        console.log('EXIF data present:', certData.exifData ? 'Yes' : 'No');
+        if (certData.exifData) {
+          console.log('EXIF dateTaken:', certData.exifData.dateTaken);
+          console.log('Full EXIF:', JSON.stringify(certData.exifData, null, 2));
+        }
         setCertificationData(certData);
         setStatus('Certification found - ready to verify');
       } else {
@@ -270,10 +290,25 @@ export default function TrustVerifier() {
         setStatus('No certification found in image metadata');
       }
       
-      setVerificationResult(null);
-      
     } catch (error) {
       setStatus(`Error: ${error.message}`);
+    }
+  };
+
+  const resetVerification = () => {
+    // Clean up preview URL
+    if (imagePreview) {
+      URL.revokeObjectURL(imagePreview);
+    }
+    // Reset all states
+    setUploadedImage(null);
+    setImagePreview(null);
+    setCertificationData(null);
+    setVerificationResult(null);
+    setStatus('Ready to verify images');
+    // Clear file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -341,8 +376,12 @@ export default function TrustVerifier() {
       setStatus('Running cryptographic verification...');
 
       console.log('Certification data:', certificationData);
+      console.log('Certification data has exifData?', !!certificationData.exifData);
+      if (certificationData.exifData) {
+        console.log('EXIF dateTaken in verification:', certificationData.exifData.dateTaken);
+      }
 
-      // The adobe-mock-client embeds: manifestId, signature, timestamp, description, certFingerprint
+      // The adobe-mock-client embeds: manifestId, signature, timestamp, description, certFingerprint, exifData
       const certFingerprint = certificationData.certFingerprint;
       const signature = certificationData.signature;
       const description = certificationData.description;
@@ -450,6 +489,8 @@ export default function TrustVerifier() {
         fingerprint: certFingerprint || null
       };
 
+      console.log('About to create result, certificationData.exifData:', certificationData.exifData);
+      
       const result = {
         trusted: isTrusted,
         certificateValid: isValidPeriod,
@@ -460,6 +501,8 @@ export default function TrustVerifier() {
         exifData: certificationData.exifData || null,
         trustIssues: []
       };
+      
+      console.log('Result created with exifData:', result.exifData);
 
       // Collect trust issues
       if (!isTrusted) result.trustIssues.push('Certificate not in trust store');
@@ -616,6 +659,14 @@ export default function TrustVerifier() {
                       <p className="font-medium">{uploadedImage?.name}</p>
                       <p>{uploadedImage?.type} • {(uploadedImage?.size / 1024).toFixed(1)} KB</p>
                     </div>
+                    {!verificationResult && (
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                      >
+                        Choose Different Image
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -633,7 +684,7 @@ export default function TrustVerifier() {
                 </div>
               )}
 
-              {certificationData && (
+              {certificationData && !verificationResult && (
                 <button
                   onClick={verifyCertification}
                   disabled={isVerifying}
@@ -652,46 +703,78 @@ export default function TrustVerifier() {
                   )}
                 </button>
               )}
+
+              {verificationResult && (
+                <button
+                  onClick={resetVerification}
+                  className="w-full mt-4 bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Upload className="w-4 h-4" />
+                  Verify Another Image
+                </button>
+              )}
             </div>
           </div>
 
           <div className="space-y-6">
             {verificationResult && (
-              <div className={`p-6 border rounded-xl ${getStatusColor(verificationResult.overallStatus)}`}>
-                <div className="flex items-center gap-3 mb-4">
-                  {getStatusIcon(verificationResult.overallStatus)}
-                  <h3 className="text-lg font-semibold">
-                    {verificationResult.overallStatus === 'verified' ? 'Verified' : 'Failed'}
-                  </h3>
+              <>
+                {/* Verification Status */}
+                <div className={`p-6 border rounded-xl ${getStatusColor(verificationResult.overallStatus)}`}>
+                  <div className="flex items-center gap-3 mb-4">
+                    {getStatusIcon(verificationResult.overallStatus)}
+                    <h3 className="text-lg font-semibold">
+                      {verificationResult.overallStatus === 'verified' ? 'Image Verified' : 'Verification Failed'}
+                    </h3>
+                  </div>
+
+                  <div className="space-y-3 text-sm">
+                    <div className="flex justify-between">
+                      <span>Certificate:</span>
+                      <span className={verificationResult.trusted ? 'text-green-600' : 'text-red-600'}>
+                        {verificationResult.trusted ? '✓ Trusted' : '✗ Untrusted'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Validity:</span>
+                      <span className={verificationResult.certificateValid ? 'text-green-600' : 'text-red-600'}>
+                        {verificationResult.certificateValid ? '✓ Valid' : '✗ Expired'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Signature:</span>
+                      <span className={verificationResult.signatureValid ? 'text-green-600' : 'text-red-600'}>
+                        {verificationResult.signatureValid ? '✓ Valid' : '✗ Invalid'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Integrity:</span>
+                      <span className={verificationResult.imageHashValid ? 'text-green-600' : 'text-red-600'}>
+                        {verificationResult.imageHashValid ? '✓ Intact' : '✗ Modified'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="space-y-3 text-sm">
-                  <div className="flex justify-between">
-                    <span>Certificate:</span>
-                    <span className={verificationResult.trusted ? 'text-green-600' : 'text-red-600'}>
-                      {verificationResult.trusted ? '✓ Trusted' : '✗ Untrusted'}
-                    </span>
+                {/* Signed Metadata Summary */}
+                {verificationResult.overallStatus === 'verified' && (
+                  <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                    <h4 className="font-semibold text-green-800 mb-3 flex items-center gap-2">
+                      <Shield className="w-5 h-5" />
+                      Cryptographically Signed Metadata
+                    </h4>
+                    <div className="text-sm text-green-700 space-y-2">
+                      <p>✓ Image Description: {verificationResult.details?.description ? `"${verificationResult.details.description}"` : 'Not provided'}</p>
+                      <p>✓ Capture Date: {verificationResult.exifData?.dateTaken ? new Date(verificationResult.exifData.dateTaken).toLocaleString() : 'Not available'}</p>
+                      <p>✓ Camera: {verificationResult.exifData?.camera || 'Not available'}</p>
+                      {verificationResult.exifData?.gps && (
+                        <p>✓ GPS Location: {formatGPSCoordinate(verificationResult.exifData.gps.latitude, true)} / {formatGPSCoordinate(verificationResult.exifData.gps.longitude, false)}</p>
+                      )}
+                      <p>✓ Signed on: {verificationResult.details?.timestamp ? new Date(verificationResult.details.timestamp).toLocaleString() : 'Unknown'}</p>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Validity:</span>
-                    <span className={verificationResult.certificateValid ? 'text-green-600' : 'text-red-600'}>
-                      {verificationResult.certificateValid ? '✓ Valid' : '✗ Expired'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Signature:</span>
-                    <span className={verificationResult.signatureValid ? 'text-green-600' : 'text-red-600'}>
-                      {verificationResult.signatureValid ? '✓ Valid' : '✗ Invalid'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Integrity:</span>
-                    <span className={verificationResult.imageHashValid ? 'text-green-600' : 'text-red-600'}>
-                      {verificationResult.imageHashValid ? '✓ Intact' : '✗ Modified'}
-                    </span>
-                  </div>
-                </div>
-              </div>
+                )}
+              </>
             )}
 
             {verificationResult?.details?.description && (
@@ -707,14 +790,17 @@ export default function TrustVerifier() {
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <Camera className="w-5 h-5 text-gray-600" />
-                  <h2 className="text-xl font-semibold text-gray-800">EXIF Data</h2>
+                  <h2 className="text-xl font-semibold text-gray-800">Signed EXIF Metadata</h2>
                 </div>
                 
                 <div className="space-y-3">
-                  <div>
-                    <span className="text-sm text-gray-600">Camera:</span>
-                    <p className="font-medium text-gray-800">{verificationResult.exifData.camera || 'Not available'}</p>
-                  </div>
+                  {/* Camera and Lens Info */}
+                  {verificationResult.exifData.camera && (
+                    <div>
+                      <span className="text-sm text-gray-600">Camera:</span>
+                      <p className="font-medium text-gray-800">{verificationResult.exifData.camera}</p>
+                    </div>
+                  )}
                   
                   {verificationResult.exifData.lens && (
                     <div>
@@ -723,23 +809,77 @@ export default function TrustVerifier() {
                     </div>
                   )}
 
-                  {(verificationResult.exifData.focalLengthString || verificationResult.exifData.apertureString) && (
-                    <div className="grid grid-cols-2 gap-4">
+                  {/* Capture Settings */}
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {verificationResult.exifData.focalLengthString && (
                       <div>
-                        <span className="text-sm text-gray-600">Focal:</span>
-                        <p className="font-medium text-gray-800">{verificationResult.exifData.focalLengthString || 'N/A'}</p>
+                        <span className="text-xs text-gray-600">Focal Length:</span>
+                        <p className="font-medium text-gray-800">{verificationResult.exifData.focalLengthString}</p>
                       </div>
+                    )}
+                    {verificationResult.exifData.apertureString && (
                       <div>
-                        <span className="text-sm text-gray-600">Aperture:</span>
-                        <p className="font-medium text-gray-800">{verificationResult.exifData.apertureString || 'N/A'}</p>
+                        <span className="text-xs text-gray-600">Aperture:</span>
+                        <p className="font-medium text-gray-800">{verificationResult.exifData.apertureString}</p>
                       </div>
+                    )}
+                    {verificationResult.exifData.shutterSpeedString && (
+                      <div>
+                        <span className="text-xs text-gray-600">Shutter:</span>
+                        <p className="font-medium text-gray-800">{verificationResult.exifData.shutterSpeedString}</p>
+                      </div>
+                    )}
+                    {verificationResult.exifData.iso && (
+                      <div>
+                        <span className="text-xs text-gray-600">ISO:</span>
+                        <p className="font-medium text-gray-800">{verificationResult.exifData.iso}</p>
+                      </div>
+                    )}
+                    {verificationResult.exifData.exposureCompensation !== undefined && (
+                      <div>
+                        <span className="text-xs text-gray-600">Exposure Comp:</span>
+                        <p className="font-medium text-gray-800">{verificationResult.exifData.exposureCompensation} EV</p>
+                      </div>
+                    )}
+                    {verificationResult.exifData.whiteBalance && (
+                      <div>
+                        <span className="text-xs text-gray-600">White Balance:</span>
+                        <p className="font-medium text-gray-800">{verificationResult.exifData.whiteBalance}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Date and Dimensions */}
+                  <div className="grid grid-cols-2 gap-3 pt-2 border-t">
+                    {verificationResult.exifData.dateTaken && (
+                      <div>
+                        <span className="text-xs text-gray-600">Date Taken:</span>
+                        <p className="font-medium text-gray-800">{new Date(verificationResult.exifData.dateTaken).toLocaleString()}</p>
+                      </div>
+                    )}
+                    {(verificationResult.exifData.width && verificationResult.exifData.height) && (
+                      <div>
+                        <span className="text-xs text-gray-600">Dimensions:</span>
+                        <p className="font-medium text-gray-800">{verificationResult.exifData.width} × {verificationResult.exifData.height}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Orientation */}
+                  {verificationResult.exifData.orientation && (
+                    <div>
+                      <span className="text-xs text-gray-600">Orientation:</span>
+                      <p className="font-medium text-gray-800">{getOrientationDescription(verificationResult.exifData.orientation)}</p>
                     </div>
                   )}
 
-                  <div>
-                    <span className="text-sm text-gray-600">Orientation:</span>
-                    <p className="font-medium text-gray-800">{getOrientationDescription(verificationResult.exifData.orientation)}</p>
-                  </div>
+                  {/* Software */}
+                  {verificationResult.exifData.software && (
+                    <div>
+                      <span className="text-xs text-gray-600">Software:</span>
+                      <p className="font-medium text-gray-800">{verificationResult.exifData.software}</p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -748,7 +888,7 @@ export default function TrustVerifier() {
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <MapPin className="w-5 h-5 text-green-600" />
-                  <h2 className="text-xl font-semibold text-gray-800">GPS Data</h2>
+                  <h2 className="text-xl font-semibold text-gray-800">Signed GPS Location</h2>
                 </div>
                 
                 <div className="space-y-3">

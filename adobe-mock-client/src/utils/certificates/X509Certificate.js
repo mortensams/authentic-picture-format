@@ -138,8 +138,8 @@ export class X509Certificate {
     const dn = {
       commonName: info.name || info.commonName || 'Unknown',
       organizationName: info.organization || null,
-      organizationalUnitName: info.department || null,
-      localityName: info.city || null,
+      organizationalUnitName: info.organizationalUnit || info.department || null,
+      localityName: info.locality || info.city || null,
       stateOrProvinceName: info.state || null,
       countryName: info.country || null,
       emailAddress: info.email || null

@@ -43,14 +43,44 @@ export class JPEGEmbedder {
   }
 
   static insertSegment(originalArray, segment) {
+    // Find the right place to insert our APP15 segment
+    // We should insert it after existing APP segments (APP0, APP1/EXIF, etc.)
+    // but before the actual image data starts
+    
+    let insertPosition = 2; // Start after SOI marker
+    
+    // Skip over existing APP segments to preserve them
+    while (insertPosition < originalArray.length - 4) {
+      if (originalArray[insertPosition] === 0xFF) {
+        const marker = originalArray[insertPosition + 1];
+        
+        // Check if it's an APP segment (0xE0-0xEF) or other metadata segment
+        if ((marker >= 0xE0 && marker <= 0xEF) || marker === 0xFE) {
+          // Get segment length and skip over it
+          const segmentLength = (originalArray[insertPosition + 2] << 8) | 
+                               originalArray[insertPosition + 3];
+          insertPosition += segmentLength + 2;
+        } else if (marker === 0xDB || marker === 0xC0 || marker === 0xC2 || 
+                   marker === 0xC4 || marker === 0xDD || marker === 0xDA) {
+          // We've reached the actual image data segments, insert before here
+          break;
+        } else {
+          insertPosition++;
+        }
+      } else {
+        insertPosition++;
+      }
+    }
+    
+    // Create result array with our segment inserted at the right position
     const result = new Uint8Array(originalArray.length + segment.length);
     
-    // Copy SOI marker
-    result.set(originalArray.slice(0, 2), 0);
-    // Insert certification segment
-    result.set(segment, 2);
-    // Copy rest of file
-    result.set(originalArray.slice(2), 2 + segment.length);
+    // Copy everything before insertion point
+    result.set(originalArray.slice(0, insertPosition), 0);
+    // Insert our certification segment
+    result.set(segment, insertPosition);
+    // Copy everything after insertion point
+    result.set(originalArray.slice(insertPosition), insertPosition + segment.length);
     
     return result.buffer;
   }

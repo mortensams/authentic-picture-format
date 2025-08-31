@@ -1,0 +1,23 @@
+{
+  "name": "aic-chrome-extension",
+  "version": "1.0.0",
+  "description": "Authentic Image Certification Chrome Extension",
+  "scripts": {
+    "build": "webpack --mode=production",
+    "dev": "webpack --mode=development --watch",
+    "clean": "rm -rf dist",
+    "package": "npm run build && zip -r aic-chrome-extension.zip dist/ manifest.json popup.html options.html styles/ icons/"
+  },
+  "devDependencies": {
+    "typescript": "^5.2.2",
+    "@types/chrome": "^0.0.246",
+    "@types/node": "^20.8.0",
+    "webpack": "^5.88.2",
+    "webpack-cli": "^5.1.4",
+    "ts-loader": "^9.5.0",
+    "copy-webpack-plugin": "^11.0.0"
+  },
+  "dependencies": {
+    "ethers": "^6.7.1"
+  }
+}

@@ -1,8 +1,30 @@
 import React, { memo } from 'react';
-import { Shield, Download } from 'lucide-react';
+import { Shield, Download, RefreshCw } from 'lucide-react';
 
-const CertificateInfo = memo(({ certificate, onExport }) => {
-  if (!certificate) return null;
+const CertificateInfo = memo(({ certificate, onExport, onGenerateNew }) => {
+  if (!certificate) {
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold text-gray-800">Certificate</h2>
+          <Shield className="w-5 h-5 text-gray-400" />
+        </div>
+        <div className="text-center py-8">
+          <Shield className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <p className="text-gray-500 mb-4">No certificate generated yet</p>
+          {onGenerateNew && (
+            <button
+              onClick={onGenerateNew}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2 mx-auto"
+            >
+              <Shield className="w-4 h-4" />
+              Generate Certificate
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
@@ -55,15 +77,26 @@ const CertificateInfo = memo(({ certificate, onExport }) => {
         </div>
       </div>
 
-      {onExport && (
-        <button
-          onClick={onExport}
-          className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium text-gray-700 transition-colors"
-        >
-          <Download className="w-4 h-4" />
-          Export Public Certificate
-        </button>
-      )}
+      <div className="mt-4 space-y-2">
+        {onExport && (
+          <button
+            onClick={onExport}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium text-gray-700 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            Export Public Certificate
+          </button>
+        )}
+        {onGenerateNew && (
+          <button
+            onClick={onGenerateNew}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-amber-100 hover:bg-amber-200 rounded-lg text-sm font-medium text-amber-700 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Generate New Certificate
+          </button>
+        )}
+      </div>
     </div>
   );
 });

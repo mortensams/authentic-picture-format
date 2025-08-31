@@ -141,15 +141,24 @@ export function useImageProcessor() {
       console.log('Manifest signed successfully');
 
       console.log('Step 5: Creating certification data...');
-      // Create a simple certification data structure without circular refs
+      // Create certification data including EXIF and all signed metadata
       const certificationData = {
         manifestId: manifest.active_manifest,
         signature: manifest.manifests[manifest.active_manifest].claim_signature.signature,
         timestamp: new Date().toISOString(),
         description: description.trim(),
-        certFingerprint: certificate.fingerprint?.sha256 || 'unknown'
+        certFingerprint: certificate.fingerprint?.sha256 || 'unknown',
+        // Include the EXIF data that was signed
+        exifData: exifData || null,
+        // Include image hash for integrity verification
+        imageHash: Array.from(imageHash)
       };
       console.log('Certification data created:', certificationData);
+      console.log('EXIF data included:', exifData ? 'Yes' : 'No');
+      if (exifData) {
+        console.log('EXIF dateTaken:', exifData.dateTaken);
+        console.log('Full EXIF data:', JSON.stringify(exifData, null, 2));
+      }
 
       console.log('Step 6: Embedding certification in image...');
       let certifiedImageBuffer;

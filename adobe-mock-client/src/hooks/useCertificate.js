@@ -8,13 +8,22 @@ export function useCertificate(photographerName = null) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState(null);
 
-  const generateCertificate = useCallback(async () => {
+  const generateCertificate = useCallback(async (certDetails = null) => {
     setIsGenerating(true);
     setError(null);
     
     try {
-      // Create proper subject info for X.509 certificate
-      const subjectInfo = {
+      // Use provided details or defaults
+      const subjectInfo = certDetails ? {
+        commonName: certDetails.commonName,
+        name: certDetails.commonName,
+        organization: certDetails.organization,
+        organizationalUnit: certDetails.organizationalUnit,
+        email: certDetails.email || null,
+        country: certDetails.country || 'US',
+        state: certDetails.state || null,
+        locality: certDetails.locality || null
+      } : {
         commonName: photographerName || appConfig.certification.defaultSubject,
         name: photographerName || appConfig.certification.defaultSubject,
         organization: 'Independent Photographer',
@@ -27,11 +36,11 @@ export function useCertificate(photographerName = null) {
         subjectInfo,
         null, // Self-signed
         {
-          validityDays: appConfig.certification.validityDays,
+          validityDays: certDetails?.validityDays || appConfig.certification.validityDays,
           isCA: false,
-          subjectAltNames: [
-            { type: 'email', value: 'photographer@example.com' }
-          ]
+          subjectAltNames: certDetails?.email ? [
+            { type: 'email', value: certDetails.email }
+          ] : []
         }
       );
 
@@ -70,10 +79,38 @@ export function useCertificate(photographerName = null) {
   }, [certificate]);
 
   useEffect(() => {
-    // Auto-generate certificate on mount if none exists
-    if (!certificate && !isGenerating) {
-      generateCertificate();
-    }
+    // Try to load existing certificate from store first
+    const loadOrGenerateCertificate = async () => {
+      if (!certificate && !isGenerating) {
+        try {
+          // Check if we have any existing certificates
+          const existingCerts = await TrustStore.getAllCertificates();
+          
+          if (existingCerts && existingCerts.length > 0) {
+            // Use the first valid certificate found
+            const validCert = existingCerts.find(cert => {
+              // Check if certificate has required fields and keys
+              return cert.keyPair && cert.tbsCertificate;
+            });
+            
+            if (validCert) {
+              console.log('Loading existing certificate:', validCert.tbsCertificate?.subject?.string);
+              setCertificate(validCert);
+              return;
+            }
+          }
+          
+          // No valid certificate found, generate a new one
+          console.log('No existing certificate found, generating new one...');
+          generateCertificate();
+        } catch (err) {
+          console.error('Error loading certificate:', err);
+          generateCertificate();
+        }
+      }
+    };
+    
+    loadOrGenerateCertificate();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {

@@ -7,6 +7,7 @@ import CertificationPanel from './CertificationPanel';
 import CertificateInfo from './CertificateInfo';
 import ExifDisplay from './ExifDisplay';
 import TrustManager from './TrustManager';
+import CertificateGenerationForm from './CertificateGenerationForm';
 import appConfig from '../config/appConfig';
 
 const StatusBar = memo(({ status, isProcessing }) => (
@@ -27,8 +28,9 @@ StatusBar.displayName = 'StatusBar';
 function ImageCertificationStudio() {
   const [status, setStatus] = useState('Initializing certificate...');
   const [photographerName, setPhotographerName] = useState('');
-  const [showNameInput, setShowNameInput] = useState(true);
+  const [showNameInput, setShowNameInput] = useState(false);
   const [showTrustManager, setShowTrustManager] = useState(false);
+  const [showCertificateForm, setShowCertificateForm] = useState(false);
 
   const {
     certificate,
@@ -127,6 +129,20 @@ function ImageCertificationStudio() {
     }
   }, [photographerName, generateCertificate]);
 
+  const handleGenerateNewCertificate = useCallback(() => {
+    setShowCertificateForm(true);
+  }, []);
+
+  const handleCertificateFormSubmit = useCallback(async (certDetails) => {
+    try {
+      await generateCertificate(certDetails);
+      setStatus('New certificate generated successfully');
+      setShowCertificateForm(false);
+    } catch (error) {
+      setStatus(`Failed to generate certificate: ${error.message}`);
+    }
+  }, [generateCertificate]);
+
   React.useEffect(() => {
     if (certificate && !photographerName) {
       setStatus('Ready to certify images');
@@ -138,47 +154,6 @@ function ImageCertificationStudio() {
 
   const error = certError || imageError;
   const canCertify = image && certificate && !certifiedImageBlob;
-
-  if (showNameInput && !certificate) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8">
-          <div className="flex items-center gap-3 mb-6">
-            <Camera className="w-8 h-8 text-blue-600" />
-            <h1 className="text-2xl font-bold text-gray-900">Setup Certificate</h1>
-          </div>
-          
-          <p className="text-gray-600 mb-6">
-            Enter your name or organization to generate a certificate for image signing.
-          </p>
-          
-          <input
-            type="text"
-            value={photographerName}
-            onChange={(e) => setPhotographerName(e.target.value)}
-            placeholder="e.g., John Smith Photography"
-            className="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            onKeyPress={(e) => e.key === 'Enter' && handleSetPhotographerName()}
-          />
-          
-          <button
-            onClick={handleSetPhotographerName}
-            disabled={!photographerName.trim()}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors font-medium"
-          >
-            Generate Certificate
-          </button>
-          
-          <button
-            onClick={() => setShowNameInput(false)}
-            className="w-full mt-2 text-gray-600 hover:text-gray-800 text-sm"
-          >
-            Skip (use default)
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
@@ -233,6 +208,7 @@ function ImageCertificationStudio() {
             <CertificateInfo
               certificate={certificate}
               onExport={handleExportCertificate}
+              onGenerateNew={handleGenerateNewCertificate}
             />
 
             {exifData && <ExifDisplay exifData={exifData} />}
@@ -243,6 +219,15 @@ function ImageCertificationStudio() {
       {/* Trust Manager Modal */}
       {showTrustManager && (
         <TrustManager onClose={() => setShowTrustManager(false)} />
+      )}
+
+      {/* Certificate Generation Form Modal */}
+      {showCertificateForm && (
+        <CertificateGenerationForm
+          onGenerate={handleCertificateFormSubmit}
+          onClose={() => setShowCertificateForm(false)}
+          isGenerating={isGenerating}
+        />
       )}
     </div>
   );

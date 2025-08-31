@@ -105,11 +105,11 @@ const ExifDisplay = memo(({ exifData }) => {
           </div>
         )}
 
-        {exifData.captureTime && (
+        {exifData.dateTaken && (
           <div>
-            <span className="text-sm text-gray-600">Captured:</span>
+            <span className="text-sm text-gray-600">Date Taken:</span>
             <p className="font-medium text-gray-800">
-              {new Date(exifData.captureTime).toLocaleString()}
+              {new Date(exifData.dateTaken).toLocaleString()}
             </p>
           </div>
         )}
