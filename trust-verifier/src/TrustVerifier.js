@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Shield, CheckCircle, AlertTriangle, XCircle, Upload, Eye, MapPin, Camera, FileImage, Settings, Plus, Trash2, X } from 'lucide-react';
 import { CertificationExtractor } from './utils/extraction/CertificationExtractor';
 import { PEMParser } from './utils/certificates/PEMParser';
+import { ExifExtractor } from './utils/metadata/ExifExtractor';
 
 // Web Crypto API utilities for verification
 class WebCryptoVerifier {
@@ -262,7 +263,7 @@ export default function TrustVerifier() {
     try {
       // Clear previous results
       setVerificationResult(null);
-      setStatus('Extracting embedded certification...');
+      setStatus('Extracting embedded certification and current EXIF...');
       
       // Clean up previous preview if exists
       if (imagePreview) {
@@ -273,16 +274,26 @@ export default function TrustVerifier() {
       setImagePreview(preview);
       setUploadedImage(file);
 
-      // Extract certification from image metadata
-      const certData = await CertificationExtractor.extractFromImage(file);
+      // Extract BOTH certification data AND current EXIF
+      const [certData, currentExif] = await Promise.all([
+        CertificationExtractor.extractFromImage(file),
+        ExifExtractor.extractFromFile(file)
+      ]);
       
       if (certData) {
         console.log('Extracted certification data:', certData);
-        console.log('EXIF data present:', certData.exifData ? 'Yes' : 'No');
-        if (certData.exifData) {
-          console.log('EXIF dateTaken:', certData.exifData.dateTaken);
-          console.log('Full EXIF:', JSON.stringify(certData.exifData, null, 2));
+        console.log('Certified EXIF present:', certData.exifData ? 'Yes' : 'No');
+        console.log('Current EXIF extracted:', currentExif ? 'Yes' : 'No');
+        
+        // Add current EXIF to certification data for comparison during verification
+        certData.currentExifData = currentExif;
+        
+        if (certData.exifData && currentExif) {
+          console.log('Will compare certified EXIF with current EXIF');
+          console.log('Certified EXIF:', JSON.stringify(certData.exifData, null, 2));
+          console.log('Current EXIF:', JSON.stringify(currentExif, null, 2));
         }
+        
         setCertificationData(certData);
         setStatus('Certification found - ready to verify');
       } else {
@@ -368,18 +379,118 @@ export default function TrustVerifier() {
     }
   };
 
+  const compareExifData = (certifiedExif, currentExif) => {
+    const issues = [];
+    
+    console.log('Comparing EXIF data:');
+    console.log('Certified:', certifiedExif);
+    console.log('Current:', currentExif);
+    
+    // Helper to safely compare values
+    const safeCompare = (val1, val2) => {
+      // Handle null/undefined
+      if (val1 == null && val2 == null) return true;
+      if (val1 == null || val2 == null) return false;
+      
+      // Trim strings for comparison
+      if (typeof val1 === 'string' && typeof val2 === 'string') {
+        return val1.trim() === val2.trim();
+      }
+      
+      return val1 === val2;
+    };
+    
+    // If no certified EXIF, can't verify
+    if (!certifiedExif) {
+      return { isValid: true, issues: ['No EXIF data was certified'] };
+    }
+    
+    // If EXIF was certified but current is missing, it was stripped
+    if (!currentExif) {
+      return { 
+        isValid: false, 
+        issues: ['EXIF data has been removed from the image'] 
+      };
+    }
+    
+    // Compare critical fields
+    if (!safeCompare(certifiedExif.camera, currentExif.camera)) {
+      if (certifiedExif.camera && currentExif.camera) {
+        issues.push(`Camera changed from "${certifiedExif.camera}" to "${currentExif.camera}"`);
+      } else if (certifiedExif.camera && !currentExif.camera) {
+        issues.push(`Camera information removed (was "${certifiedExif.camera}")`);
+      } else if (!certifiedExif.camera && currentExif.camera) {
+        issues.push(`Camera information added ("${currentExif.camera}")`);
+      }
+    }
+    
+    if (!safeCompare(certifiedExif.dateTaken, currentExif.dateTaken)) {
+      if (certifiedExif.dateTaken && currentExif.dateTaken) {
+        issues.push(`Date taken changed from ${new Date(certifiedExif.dateTaken).toLocaleString()} to ${new Date(currentExif.dateTaken).toLocaleString()}`);
+      } else {
+        issues.push(`Date taken modified`);
+      }
+    }
+    
+    if (!safeCompare(certifiedExif.orientation, currentExif.orientation)) {
+      issues.push(`Orientation changed from ${certifiedExif.orientation} to ${currentExif.orientation}`);
+    }
+    
+    // GPS comparison - most critical for location verification
+    if (certifiedExif.gps || currentExif.gps) {
+      if (!certifiedExif.gps && currentExif.gps) {
+        issues.push('GPS location was added after certification');
+      } else if (certifiedExif.gps && !currentExif.gps) {
+        issues.push('GPS location was removed');
+      } else if (certifiedExif.gps && currentExif.gps) {
+        const latDiff = Math.abs(certifiedExif.gps.latitude - currentExif.gps.latitude);
+        const lngDiff = Math.abs(certifiedExif.gps.longitude - currentExif.gps.longitude);
+        if (latDiff > 0.000001 || lngDiff > 0.000001) {
+          issues.push(`GPS location was modified`);
+        }
+      }
+    }
+    
+    // Camera settings comparison
+    if (!safeCompare(certifiedExif.iso, currentExif.iso)) {
+      if (certifiedExif.iso !== null && currentExif.iso !== null) {
+        issues.push(`ISO changed from ${certifiedExif.iso} to ${currentExif.iso}`);
+      }
+    }
+    
+    if (!safeCompare(certifiedExif.focalLength, currentExif.focalLength)) {
+      if (certifiedExif.focalLength !== null && currentExif.focalLength !== null) {
+        issues.push(`Focal length changed from ${certifiedExif.focalLength}mm to ${currentExif.focalLength}mm`);
+      }
+    }
+    
+    // Lens comparison
+    if (!safeCompare(certifiedExif.lens, currentExif.lens)) {
+      if (certifiedExif.lens && currentExif.lens) {
+        issues.push(`Lens changed from "${certifiedExif.lens}" to "${currentExif.lens}"`);
+      } else if (certifiedExif.lens && !currentExif.lens) {
+        issues.push(`Lens information removed`);
+      } else if (!certifiedExif.lens && currentExif.lens) {
+        issues.push(`Lens information added`);
+      }
+    }
+    
+    return {
+      isValid: issues.length === 0,
+      issues: issues
+    };
+  };
+
   const verifyCertification = async () => {
     if (!certificationData || !uploadedImage) return;
 
     try {
       setIsVerifying(true);
-      setStatus('Running cryptographic verification...');
+      setStatus('Running cryptographic verification and EXIF integrity check...');
 
       console.log('Certification data:', certificationData);
-      console.log('Certification data has exifData?', !!certificationData.exifData);
-      if (certificationData.exifData) {
-        console.log('EXIF dateTaken in verification:', certificationData.exifData.dateTaken);
-      }
+      console.log('Certified EXIF:', certificationData.exifData);
+      console.log('Current EXIF:', certificationData.currentExifData);
 
       // The adobe-mock-client embeds: manifestId, signature, timestamp, description, certFingerprint, exifData
       const certFingerprint = certificationData.certFingerprint;
@@ -489,6 +600,11 @@ export default function TrustVerifier() {
         fingerprint: certFingerprint || null
       };
 
+      // Check EXIF integrity
+      const exifComparison = compareExifData(certificationData.exifData, certificationData.currentExifData);
+      const exifIntegrityValid = exifComparison.isValid;
+      
+      console.log('EXIF integrity check:', exifComparison);
       console.log('About to create result, certificationData.exifData:', certificationData.exifData);
       
       const result = {
@@ -496,9 +612,12 @@ export default function TrustVerifier() {
         certificateValid: isValidPeriod,
         signatureValid: signatureValid,
         imageHashValid: imageHashValid,
-        overallStatus: (isTrusted && isValidPeriod && signatureValid && imageHashValid) ? 'verified' : 'failed',
+        exifIntegrityValid: exifIntegrityValid,
+        exifIssues: exifComparison.issues,
+        overallStatus: (isTrusted && isValidPeriod && signatureValid && imageHashValid && exifIntegrityValid) ? 'verified' : 'failed',
         details: details,
         exifData: certificationData.exifData || null,
+        currentExifData: certificationData.currentExifData || null,
         trustIssues: []
       };
       
@@ -509,11 +628,15 @@ export default function TrustVerifier() {
       if (!isValidPeriod) result.trustIssues.push('Certificate expired or not yet valid');
       if (!signatureValid) result.trustIssues.push('Cryptographic signature verification failed');
       if (!imageHashValid) result.trustIssues.push('Image data has been modified since signing');
+      if (!exifIntegrityValid) {
+        result.trustIssues.push('EXIF metadata has been tampered with');
+        console.error('EXIF tampering detected:', exifComparison.issues);
+      }
 
       setVerificationResult(result);
       
       if (result.overallStatus === 'verified') {
-        setStatus('✅ Verification successful - Trust chain intact');
+        setStatus('✅ Verification successful - Trust chain and EXIF integrity intact');
       } else {
         setStatus(`❌ Verification failed: ${result.trustIssues.join(', ')}`);
       }
@@ -748,13 +871,38 @@ export default function TrustVerifier() {
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Integrity:</span>
+                      <span>Image Integrity:</span>
                       <span className={verificationResult.imageHashValid ? 'text-green-600' : 'text-red-600'}>
                         {verificationResult.imageHashValid ? '✓ Intact' : '✗ Modified'}
                       </span>
                     </div>
+                    <div className="flex justify-between">
+                      <span>EXIF Integrity:</span>
+                      <span className={verificationResult.exifIntegrityValid ? 'text-green-600' : 'text-red-600'}>
+                        {verificationResult.exifIntegrityValid ? '✓ Intact' : '✗ Tampered'}
+                      </span>
+                    </div>
                   </div>
                 </div>
+
+                {/* EXIF Tampering Warning */}
+                {verificationResult.exifIssues?.length > 0 && !verificationResult.exifIntegrityValid && (
+                  <div className="mt-4 p-4 bg-orange-50 rounded-lg border border-orange-200">
+                    <h4 className="font-semibold text-orange-800 mb-2 flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5" />
+                      EXIF Metadata Tampering Detected
+                    </h4>
+                    <ul className="list-disc list-inside text-sm text-orange-700 space-y-1">
+                      {verificationResult.exifIssues.map((issue, idx) => (
+                        <li key={idx}>{issue}</li>
+                      ))}
+                    </ul>
+                    <p className="text-xs text-orange-600 mt-3 font-medium">
+                      ⚠️ Warning: The EXIF metadata has been modified after certification. 
+                      Standard photo software will display false location, date, or camera information.
+                    </p>
+                  </div>
+                )}
 
                 {/* Signed Metadata Summary */}
                 {verificationResult.overallStatus === 'verified' && (
@@ -765,12 +913,12 @@ export default function TrustVerifier() {
                     </h4>
                     <div className="text-sm text-green-700 space-y-2">
                       <p>✓ Image Description: {verificationResult.details?.description ? `"${verificationResult.details.description}"` : 'Not provided'}</p>
-                      <p>✓ Capture Date: {verificationResult.exifData?.dateTaken ? new Date(verificationResult.exifData.dateTaken).toLocaleString() : 'Not available'}</p>
-                      <p>✓ Camera: {verificationResult.exifData?.camera || 'Not available'}</p>
+                      <p>✓ Original Capture Date: {verificationResult.exifData?.dateTaken ? new Date(verificationResult.exifData.dateTaken).toLocaleString() : 'Not available'}</p>
+                      <p>✓ Original Camera: {verificationResult.exifData?.camera || 'Not available'}</p>
                       {verificationResult.exifData?.gps && (
-                        <p>✓ GPS Location: {formatGPSCoordinate(verificationResult.exifData.gps.latitude, true)} / {formatGPSCoordinate(verificationResult.exifData.gps.longitude, false)}</p>
+                        <p>✓ Original GPS Location: {formatGPSCoordinate(verificationResult.exifData.gps.latitude, true)} / {formatGPSCoordinate(verificationResult.exifData.gps.longitude, false)}</p>
                       )}
-                      <p>✓ Signed on: {verificationResult.details?.timestamp ? new Date(verificationResult.details.timestamp).toLocaleString() : 'Unknown'}</p>
+                      <p>✓ Certification Date: {verificationResult.details?.timestamp ? new Date(verificationResult.details.timestamp).toLocaleString() : 'Unknown'}</p>
                     </div>
                   </div>
                 )}
@@ -788,9 +936,15 @@ export default function TrustVerifier() {
           <div className="space-y-6">
             {verificationResult?.exifData && (
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <Camera className="w-5 h-5 text-gray-600" />
-                  <h2 className="text-xl font-semibold text-gray-800">Signed EXIF Metadata</h2>
+                <div className="mb-4">
+                  <div className="flex items-center gap-2">
+                    <Camera className="w-5 h-5 text-gray-600" />
+                    <h2 className="text-xl font-semibold text-gray-800">Certified EXIF Metadata</h2>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1 ml-7">
+                    This metadata was captured and signed at the time of certification. 
+                    Any subsequent EXIF modifications are not reflected here.
+                  </p>
                 </div>
                 
                 <div className="space-y-3">
